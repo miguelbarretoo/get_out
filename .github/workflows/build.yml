@@ -61,14 +61,9 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt install -yq \
             attr ccache clang ffmpeg liblzma-dev libbrotli-dev libbz2-dev \
             libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
-            libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
+            libzstd-dev lld protobuf-compiler webp \
             build-essential g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
             python-is-python3 python3 wget gh pkg-config
-
-          # TODO: pin to a specific commit instead of refs/heads/master
-          wget https://raw.githubusercontent.com/kdrag0n/kramflash/refs/heads/master/mkbootimg.py
-          chmod +x mkbootimg.py
-          sudo ln -sf "$(pwd)/mkbootimg.py" /usr/bin/mkbootimg
 
           sudo modprobe erofs f2fs
 
