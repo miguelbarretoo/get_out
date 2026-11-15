@@ -1,0 +1,89 @@
+name: Build GmKernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: Source repository
+        required: true
+        type: string
+      source_ref:
+        description: Full source commit SHA
+        required: true
+        type: string
+      source_paths:
+        description: Checkout paths, one per line
+        required: true
+        type: string
+      build_script:
+        description: Build script relative to the checkout
+        required: true
+        type: string
+      output_directory:
+        description: Verified kernel output directory
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check source revision
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: '[[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]'
+
+      - name: Checkout build inputs
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.GH_AUTH }}
+          persist-credentials: false
+          sparse-checkout: ${{ inputs.source_paths }}
+
+      - name: Install kernel prerequisites
+        run: |
+          sudo -n apt-get update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            bc bison build-essential cpio curl flex git libc++1 libc++abi1 \
+            libelf-dev libssl-dev lld python3 rsync unzip xz-utils zip
+
+      - name: Add build swap
+        uses: pierotofy/set-swap-space@v1.0
+        with:
+          swap-size-gb: 8
+
+      - name: Compile and verify kernel
+        env:
+          BUILD_SCRIPT: ${{ inputs.build_script }}
+        run: bash "$BUILD_SCRIPT"
+
+      - name: Prepare binary artifacts
+        env:
+          OUTPUT_DIRECTORY: ${{ inputs.output_directory }}
+        run: |
+          export_dir="$RUNNER_TEMP/kernel-binaries"
+          mkdir -p "$export_dir"
+          for name in Image System.map kernel.config dtb.img dtbo.img boot.img; do
+            test -s "$OUTPUT_DIRECTORY/$name"
+            cp -- "$OUTPUT_DIRECTORY/$name" "$export_dir/$name"
+          done
+          (cd "$export_dir" && sha256sum Image System.map kernel.config dtb.img dtbo.img boot.img > SHA256SUMS)
+
+      - name: Upload verified kernel binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: GmKernel-r8s
+          path: ${{ runner.temp }}/kernel-binaries/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 7
