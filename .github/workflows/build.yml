@@ -6,6 +6,10 @@ on:
       OTA_LINK:
         description: "Put OnePlus OTA link here"
         required: true
+      DEBUG:
+        description: "Debug build (adds -d flag)"
+        type: boolean
+        default: false  
 
 permissions:
   contents: read
@@ -109,7 +113,16 @@ jobs:
         run: bash scripts/fetch_large_files.sh
 
       - name: Build ROM
-        run: ./build.sh ${{ matrix.target }} erofs -z -k
+        env:
+          DEBUG: ${{ github.event.inputs.DEBUG }}
+        run: |
+          flags=(-z -k)
+          if [ "$DEBUG" = "true" ]; then
+            flags+=(-d)
+          fi
+
+          echo "Running: ./build.sh ${{ matrix.target }} erofs ${flags[*]}"
+          ./build.sh "${{ matrix.target }}" erofs "${flags[@]}"
 
       - name: Upload zips to Gofile
         env:
