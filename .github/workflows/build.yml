@@ -10,6 +10,15 @@ on:
         description: "Debug build (adds -d flag)"
         type: boolean
         default: false  
+      TARGET:
+        description: Device to build
+        type: choice
+        options: [all, r8s, x1s, y2s, z3s, c2s]
+        default: all
+      SOURCE_REF:
+        description: Optional full source commit SHA
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -25,13 +34,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [c2s, x1s, y2s, z3s, r8s]
+        target: ${{ fromJSON(inputs.TARGET == 'all' && '["c2s","x1s","y2s","z3s","r8s"]' || format('["{0}"]', inputs.TARGET)) }}
 
     steps:
+      - name: Check requested source revision
+        if: inputs.SOURCE_REF != ''
+        env:
+          SOURCE_REF: ${{ inputs.SOURCE_REF }}
+        run: '[[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]'
+
       - name: Checkout private source
         uses: actions/checkout@v7
         with:
-          repository: At30c/ColorOS17-Exynos990
+          repository: ${{ secrets.ROM_SOURCE_REPOSITORY }}
+          ref: ${{ inputs.SOURCE_REF }}
           token: ${{ secrets.GH_AUTH }}
           submodules: 'recursive'
 
@@ -76,6 +92,8 @@ jobs:
             libssl-dev bc bison flex cpio perl binutils libelf-dev
 
           if [[ "$BUILD_TARGET" == r8s ]]; then
+            sudo DEBIAN_FRONTEND=noninteractive apt install -yq \
+              libc++1 libc++abi1 rsync unzip xz-utils zip
             has_filesystem() { awk -v fs="$1" '$NF == fs { found=1 } END { exit !found }' /proc/filesystems; }
             for fs in erofs f2fs; do
               if ! has_filesystem "$fs" && ! sudo modprobe "$fs"; then
@@ -94,6 +112,12 @@ jobs:
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add r8s kernel build swap
+        if: matrix.target == 'r8s'
+        uses: pierotofy/set-swap-space@v1.0
+        with:
+          swap-size-gb: 8
 
       - name: Cache cargo binaries
         id: cargo-cache
@@ -129,6 +153,13 @@ jobs:
       - name: Download large files
         run: bash scripts/fetch_large_files.sh
 
+      - name: Cache the r8s kernel binaries
+        if: matrix.target == 'r8s'
+        uses: actions/cache@v4
+        with:
+          path: ${{ secrets.ROM_KERNEL_DIRECTORY }}
+          key: kernel-r8s-${{ runner.os }}-${{ secrets.ROM_KERNEL_CACHE_KEY }}
+
       - name: Build ROM
         env:
           DEBUG: ${{ github.event.inputs.DEBUG }}
@@ -141,15 +172,43 @@ jobs:
           echo "Running: ./build.sh ${{ matrix.target }} erofs ${flags[*]}"
           ./build.sh "${{ matrix.target }}" erofs "${flags[@]}"
 
+      - name: Prepare r8s release artifacts
+        if: matrix.target == 'r8s'
+        env:
+          ROM_DIRECTORY: ${{ secrets.ROM_OUTPUT_DIRECTORY }}
+          KERNEL_DIRECTORY: ${{ secrets.ROM_KERNEL_DIRECTORY }}
+        run: |
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/.github/scripts/export-artifacts.py" \
+            --output "$RUNNER_TEMP/export-artifacts.py"
+          python3 "$RUNNER_TEMP/export-artifacts.py" \
+            --rom-dir "$ROM_DIRECTORY" --kernel-dir "$KERNEL_DIRECTORY" \
+            --output "$RUNNER_TEMP/rom-release"
+
+      - name: Upload r8s kernel and checksums
+        if: matrix.target == 'r8s'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GmKernel-r8s
+          path: |
+            ${{ runner.temp }}/rom-release/GmKernel-r8s.zip
+            ${{ runner.temp }}/rom-release/SHA256SUMS
+            ${{ runner.temp }}/rom-release/release-notes.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload zips to Gofile
         env:
           TARGET_DIR: out/target/${{ matrix.target }}
         run: |
           shopt -s nullglob
           files=("$TARGET_DIR"/*.zip)
+          if [[ '${{ matrix.target }}' == r8s ]]; then
+            files=("$RUNNER_TEMP/rom-release/"*)
+          fi
 
           if [ ${#files[@]} -eq 0 ]; then
-            echo "Error: no .zip files found in '$TARGET_DIR'!"
+            echo "Error: no release files found!"
             exit 1
           fi
 
