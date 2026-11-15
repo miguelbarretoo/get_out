@@ -60,6 +60,8 @@ jobs:
           retain: 'compiler_cmake'
 
       - name: Set up build environment
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
         run: |
           sudo apt update
           sudo DEBIAN_FRONTEND=noninteractive apt install -yq \
@@ -73,7 +75,22 @@ jobs:
             curl ca-certificates \
             libssl-dev bc bison flex cpio perl binutils libelf-dev
 
-          sudo modprobe erofs f2fs
+          if [[ "$BUILD_TARGET" == r8s ]]; then
+            has_filesystem() { awk -v fs="$1" '$NF == fs { found=1 } END { exit !found }' /proc/filesystems; }
+            for fs in erofs f2fs; do
+              if ! has_filesystem "$fs" && ! sudo modprobe "$fs"; then
+                for package in "linux-modules-$(uname -r)" "linux-modules-extra-$(uname -r)"; do
+                  if apt-cache show "$package" >/dev/null 2>&1; then
+                    sudo DEBIAN_FRONTEND=noninteractive apt install -yq "$package"
+                    if sudo modprobe "$fs"; then break; fi
+                  fi
+                done
+              fi
+              has_filesystem "$fs" || { echo "Required filesystem unavailable: $fs" >&2; exit 1; }
+            done
+          else
+            sudo modprobe erofs f2fs
+          fi
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
