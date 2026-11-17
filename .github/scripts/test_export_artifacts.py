@@ -58,6 +58,18 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(archive.read('boot.img'), (kernel / 'boot.img').read_bytes())
             self.assertFalse((output / 'kernel-info.json').exists())
 
+    def test_missing_profile_provenance_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rom, kernel = self.fixture(root)
+            path = kernel / 'kernel-info.json'
+            info = json.loads(path.read_text())
+            info.pop('profile_sha256')
+            path.write_text(json.dumps(info))
+            with self.assertRaisesRegex(RuntimeError, 'provenance'):
+                release.export(rom, kernel, root / 'release')
+            self.assertFalse((root / 'release').exists())
+
     def test_development_files_are_rejected_before_export(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

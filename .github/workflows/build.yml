@@ -16,7 +16,7 @@ on:
         options: [all, r8s, x1s, y2s, z3s, c2s]
         default: all
       SOURCE_REF:
-        description: Optional full source commit SHA
+        description: Full source commit SHA (required for r8s releases)
         type: string
         default: ''
 
@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Check requested source revision
-        if: inputs.SOURCE_REF != ''
+        if: matrix.target == 'r8s' || inputs.SOURCE_REF != ''
         env:
           SOURCE_REF: ${{ inputs.SOURCE_REF }}
         run: '[[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]'
