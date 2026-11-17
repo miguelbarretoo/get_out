@@ -115,9 +115,20 @@ jobs:
 
       - name: Add r8s kernel build swap
         if: matrix.target == 'r8s'
-        uses: pierotofy/set-swap-space@v1.0
-        with:
-          swap-size-gb: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          swap_file="${RUNNER_TEMP:?}/kernel-build.swap"
+          if [[ -e "$swap_file" || -L "$swap_file" ]]; then
+            echo "Refusing to overwrite existing swap path: $swap_file" >&2
+            exit 1
+          fi
+          sudo install -m 600 /dev/null "$swap_file"
+          sudo fallocate -l 8G "$swap_file"
+          sudo mkswap "$swap_file"
+          sudo swapon "$swap_file"
+          swapon --show
+          free -h
 
       - name: Cache cargo binaries
         id: cargo-cache
