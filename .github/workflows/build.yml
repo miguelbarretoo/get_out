@@ -41,7 +41,11 @@ jobs:
         if: matrix.target == 'r8s' || inputs.SOURCE_REF != ''
         env:
           SOURCE_REF: ${{ inputs.SOURCE_REF }}
-        run: '[[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]'
+        run: |
+          if [[ ! "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::SOURCE_REF must be the full 40-character lowercase source commit SHA. A download ID, OTA URL or branch name is not a commit SHA.'
+            exit 1
+          fi
 
       - name: Checkout private source
         uses: actions/checkout@v7
@@ -147,11 +151,18 @@ jobs:
       - name: Add cargo to PATH
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Set up JDK 17
+      - name: Set up build JDK
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ matrix.target == 'r8s' && '25.0.4.1+1' || '17' }}
+
+      - name: Cache r8s Hub compilers
+        if: matrix.target == 'r8s'
+        uses: actions/cache@v4
+        with:
+          path: out/cache/r8s/hub-toolchain
+          key: r8s-hub-compilers-${{ runner.os }}-${{ hashFiles('QuantumROM/targets/r8s/compat/hub/toolchain.lock.json') }}
 
       - name: Set up GH login
         env:
