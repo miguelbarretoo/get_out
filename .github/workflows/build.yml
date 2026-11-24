@@ -152,10 +152,28 @@ jobs:
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Set up build JDK
+        if: matrix.target != 'r8s'
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: ${{ matrix.target == 'r8s' && '25.0.4.1+1' || '17' }}
+          java-version: '17'
+
+      - name: Install pinned r8s build JDK
+        if: matrix.target == 'r8s'
+        env:
+          JDK_URL: https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz
+          JDK_SHA256: dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e
+        run: |
+          archive="$RUNNER_TEMP/r8s-jdk.tar.gz"
+          jdk="$RUNNER_TEMP/r8s-jdk"
+          curl --fail --silent --show-error --location --retry 3 "$JDK_URL" --output "$archive"
+          printf '%s  %s\n' "$JDK_SHA256" "$archive" | sha256sum --check --status
+          mkdir -p "$jdk"
+          tar --extract --gzip --file "$archive" --strip-components=1 --directory "$jdk"
+          expected=$(python3 -c 'import json; print(json.load(open("QuantumROM/targets/r8s/compat/hub/toolchain.lock.json"))["java_version"])')
+          test "$("$jdk/bin/javac" -version)" = "javac $expected"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          echo "$jdk/bin" >> "$GITHUB_PATH"
 
       - name: Cache r8s Hub compilers
         if: matrix.target == 'r8s'
